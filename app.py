@@ -1,7 +1,7 @@
 from collections import Counter
 from pathlib import Path
+import tempfile
 
-import numpy as np
 import streamlit as st
 from PIL import Image
 from ultralytics import YOLO
@@ -117,16 +117,20 @@ def render_detection_summary_and_price(result) -> None:
         st.warning(f"Missing price in PRICE_RM for: {missing}")
 
 
-def predict_image(model: YOLO, image: Image.Image, conf: float):
-    image_np = np.array(image.convert("RGB"))
-    results = model.predict(image_np, conf=conf, verbose=False)
-    return results[0], image_np
+def predict_image(model: YOLO, uploaded_file, conf: float):
+    suffix = Path(uploaded_file.name).suffix or ".jpg"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        temp_file.write(uploaded_file.getvalue())
+        temp_path = temp_file.name
+
+    # Match notebook inference settings as closely as possible.
+    results = model.predict(temp_path, conf=conf, iou=0.45, verbose=False)
+    return results[0]
 
 
 model, model_path = load_model()
 confidence = st.slider("Confidence threshold", min_value=0.10, max_value=1.00, value=0.25, step=0.05)
 uploaded_image = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
-st.caption(f"Loaded model: `{model_path}`")
 
 if uploaded_image:
     image = Image.open(uploaded_image)
@@ -135,9 +139,11 @@ if uploaded_image:
     with col1:
         st.image(image, caption="Original", use_container_width=True)
 
-    result, _ = predict_image(model, image, confidence)
-    # Request PIL output to keep RGB color order correct in Streamlit.
-    plotted = result.plot(pil=True)
+    result = predict_image(model, uploaded_image, confidence)
+    # Explicit channel conversion for ndarray output from OpenCV.
+    plotted = result.plot()
+    if hasattr(plotted, "ndim") and plotted.ndim == 3:
+        plotted = plotted[:, :, ::-1]
 
     with col2:
         st.image(plotted, caption="Detected", use_container_width=True)
