@@ -65,13 +65,13 @@ PRICE_RM = {
 
 
 @st.cache_resource
-def load_model() -> YOLO:
+def load_model():
     """
     Load custom model if available, otherwise use lightweight default.
     """
     custom_model = Path("best.pt")
-    model_path = str(custom_model) if custom_model.exists() else "yolov8n.pt"
-    return YOLO(model_path)
+    model_path = str(custom_model.resolve()) if custom_model.exists() else "yolov8n.pt"
+    return YOLO(model_path), model_path
 
 
 def render_detection_summary_and_price(result) -> None:
@@ -102,7 +102,7 @@ def render_detection_summary_and_price(result) -> None:
 
         rows.append(
             {
-                "Item": cls_name,
+                "Item": cls_name.title(),
                 "Quantity": qty,
                 "Unit Price (RM)": f"{unit_price:.2f}" if unit_price is not None else "N/A",
                 "Line Total (RM)": f"{line_total:.2f}" if line_total is not None else "N/A",
@@ -123,9 +123,10 @@ def predict_image(model: YOLO, image: Image.Image, conf: float):
     return results[0], image_np
 
 
-model = load_model()
+model, model_path = load_model()
 confidence = st.slider("Confidence threshold", min_value=0.10, max_value=1.00, value=0.25, step=0.05)
 uploaded_image = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
+st.caption(f"Loaded model: `{model_path}`")
 
 if uploaded_image:
     image = Image.open(uploaded_image)
@@ -135,7 +136,8 @@ if uploaded_image:
         st.image(image, caption="Original", use_container_width=True)
 
     result, _ = predict_image(model, image, confidence)
-    plotted = result.plot()[:, :, ::-1]  # BGR -> RGB
+    # Request PIL output to keep RGB color order correct in Streamlit.
+    plotted = result.plot(pil=True)
 
     with col2:
         st.image(plotted, caption="Detected", use_container_width=True)
