@@ -5,6 +5,7 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 from ultralytics import YOLO
+from config import YOLO_DETECT_WEIGHTS
 
 
 st.set_page_config(page_title="YOLO Detection", layout="centered")
@@ -67,11 +68,21 @@ PRICE_RM = {
 @st.cache_resource
 def load_model() -> YOLO:
     """
-    Load custom model if available, otherwise use lightweight default.
+    Load the same detection weights used in model_demo.ipynb.
     """
-    custom_model = Path("best.pt")
-    model_path = str(custom_model) if custom_model.exists() else "yolov8n.pt"
-    return YOLO(model_path)
+    detect_weights = Path(YOLO_DETECT_WEIGHTS)
+    fallback_weights = Path("best.pt")
+
+    if detect_weights.exists():
+        return YOLO(str(detect_weights))
+    if fallback_weights.exists():
+        return YOLO(str(fallback_weights))
+
+    st.warning(
+        "Custom detection weights not found. Falling back to yolov8n.pt, "
+        "which may produce very different classes/results."
+    )
+    return YOLO("yolov8n.pt")
 
 
 def render_detection_summary_and_price(result) -> None:
@@ -117,14 +128,15 @@ def render_detection_summary_and_price(result) -> None:
         st.warning(f"Missing price in PRICE_RM for: {missing}")
 
 
-def predict_image(model: YOLO, image: Image.Image, conf: float):
+def predict_image(model: YOLO, image: Image.Image, conf: float, iou: float):
     image_np = np.array(image.convert("RGB"))
-    results = model.predict(image_np, conf=conf, verbose=False)
+    results = model.predict(image_np, conf=conf, iou=iou, verbose=False)
     return results[0], image_np
 
 
 model = load_model()
 confidence = st.slider("Confidence threshold", min_value=0.10, max_value=1.00, value=0.25, step=0.05)
+iou_threshold = st.slider("IoU threshold", min_value=0.10, max_value=1.00, value=0.45, step=0.05)
 uploaded_image = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
 
 if uploaded_image:
@@ -134,7 +146,7 @@ if uploaded_image:
     with col1:
         st.image(image, caption="Original", use_container_width=True)
 
-    result, _ = predict_image(model, image, confidence)
+    result, _ = predict_image(model, image, confidence, iou_threshold)
     plotted = result.plot()[:, :, ::-1]  # BGR -> RGB
 
     with col2:
