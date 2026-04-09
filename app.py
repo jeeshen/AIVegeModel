@@ -1,4 +1,3 @@
-import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -10,7 +9,59 @@ from ultralytics import YOLO
 
 st.set_page_config(page_title="YOLO Detection", layout="centered")
 st.title("YOLO Multi-Object Detection")
-st.caption("Upload an image and detect objects in one click.")
+st.caption("Upload one image to detect vegetables/fruits and calculate price (MYR).")
+
+
+# Per detected item (each bounding box = 1 unit), in MYR.
+PRICE_RM = {
+    "almond": 3.50,
+    "apple": 1.80,
+    "asparagus": 2.00,
+    "avocado": 6.00,
+    "banana": 1.00,
+    "beans": 3.00,
+    "beet": 2.50,
+    "bell pepper": 4.00,
+    "blackberry": 0.35,
+    "blueberry": 0.25,
+    "broccoli": 5.00,
+    "brussels sprouts": 0.60,
+    "cabbage": 5.00,
+    "carrot": 1.20,
+    "cauliflower": 6.50,
+    "celery": 3.50,
+    "cherry": 0.45,
+    "corn": 3.00,
+    "cucumber": 2.50,
+    "egg": 0.55,
+    "eggplant": 3.50,
+    "garlic": 1.50,
+    "grape": 0.20,
+    "green bean": 0.35,
+    "green onion": 1.80,
+    "hot pepper": 0.80,
+    "kiwi": 2.50,
+    "lemon": 1.00,
+    "lettuce": 4.00,
+    "lime": 0.70,
+    "mandarin": 1.20,
+    "mushroom": 0.50,
+    "onion": 1.20,
+    "orange": 1.80,
+    "pattypan squash": 3.50,
+    "pea": 0.15,
+    "peach": 4.00,
+    "pear": 3.00,
+    "pineapple": 10.00,
+    "potato": 2.50,
+    "pumpkin": 4.50,
+    "radish": 0.60,
+    "raspberry": 0.40,
+    "strawberry": 1.50,
+    "tomato": 2.50,
+    "vegetable marrow": 3.50,
+    "watermelon": 6.00,
+}
 
 
 @st.cache_resource
@@ -23,7 +74,7 @@ def load_model() -> YOLO:
     return YOLO(model_path)
 
 
-def render_detection_summary(result) -> None:
+def render_detection_summary_and_price(result) -> None:
     names = result.names
     class_ids = result.boxes.cls.tolist() if result.boxes is not None else []
     class_names = [names[int(class_id)] for class_id in class_ids]
@@ -34,8 +85,36 @@ def render_detection_summary(result) -> None:
         return
 
     st.subheader("Detected Objects")
-    for label, count in counts.items():
-        st.write(f"- {label}: {count}")
+
+    total_rm = 0.0
+    rows = []
+    missing_prices = []
+
+    for cls_name in sorted(counts.keys()):
+        qty = counts[cls_name]
+        unit_price = PRICE_RM.get(cls_name)
+        if unit_price is None:
+            line_total = None
+            missing_prices.append(cls_name)
+        else:
+            line_total = unit_price * qty
+            total_rm += line_total
+
+        rows.append(
+            {
+                "Item": cls_name,
+                "Quantity": qty,
+                "Unit Price (RM)": f"{unit_price:.2f}" if unit_price is not None else "N/A",
+                "Line Total (RM)": f"{line_total:.2f}" if line_total is not None else "N/A",
+            }
+        )
+
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.metric("Total Price (MYR)", f"RM {total_rm:.2f}")
+
+    if missing_prices:
+        missing = ", ".join(sorted(missing_prices))
+        st.warning(f"Missing price in PRICE_RM for: {missing}")
 
 
 def predict_image(model: YOLO, image: Image.Image, conf: float):
@@ -44,46 +123,21 @@ def predict_image(model: YOLO, image: Image.Image, conf: float):
     return results[0], image_np
 
 
-def predict_video(model: YOLO, video_file, conf: float):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
-        temp_video.write(video_file.read())
-        temp_video_path = temp_video.name
-
-    results = model.predict(source=temp_video_path, conf=conf, verbose=False, stream=False)
-    return results[0]
-
-
 model = load_model()
-
-mode = st.radio("Select input type", ["Image", "Video"], horizontal=True)
 confidence = st.slider("Confidence threshold", min_value=0.10, max_value=1.00, value=0.25, step=0.05)
+uploaded_image = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
 
-if mode == "Image":
-    uploaded_image = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
-    if uploaded_image:
-        image = Image.open(uploaded_image)
-        col1, col2 = st.columns(2)
+if uploaded_image:
+    image = Image.open(uploaded_image)
+    col1, col2 = st.columns(2)
 
-        with col1:
-            st.image(image, caption="Original", use_container_width=True)
+    with col1:
+        st.image(image, caption="Original", use_container_width=True)
 
-        result, _ = predict_image(model, image, confidence)
-        plotted = result.plot()[:, :, ::-1]  # BGR -> RGB
+    result, _ = predict_image(model, image, confidence)
+    plotted = result.plot()[:, :, ::-1]  # BGR -> RGB
 
-        with col2:
-            st.image(plotted, caption="Detected", use_container_width=True)
+    with col2:
+        st.image(plotted, caption="Detected", use_container_width=True)
 
-        render_detection_summary(result)
-
-elif mode == "Video":
-    uploaded_video = st.file_uploader("Upload video", type=["mp4", "mov", "avi", "mkv"])
-    if uploaded_video:
-        st.video(uploaded_video)
-        st.warning("Video inference may take longer on cloud deployments.")
-
-        if st.button("Run detection on video"):
-            result = predict_video(model, uploaded_video, confidence)
-            st.success("Detection complete. Showing the first processed frame preview.")
-            preview = result.plot()[:, :, ::-1]  # BGR -> RGB
-            st.image(preview, caption="Preview frame with detections", use_container_width=True)
-            render_detection_summary(result)
+    render_detection_summary_and_price(result)
