@@ -13,6 +13,7 @@ Upload an image with multiple items and the app detects each object, shows an it
 ## Dataset
 This project expects YOLO-format data configuration in:
 - `data/detect_data.yaml`
+Dataset available at: https://drive.google.com/file/d/1dqW83p6kfkkZKULHN4aGXjMm8cyc_dHI/view?usp=sharing
 
 You can update dataset paths and class definitions there if needed.
 
